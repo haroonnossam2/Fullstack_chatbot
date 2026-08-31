@@ -2,7 +2,7 @@ import re
 import os
 
 from langchain_openai import ChatOpenAI
-from langchain_core.messages import SystemMessage
+from langchain_core.messages import SystemMessage, HumanMessage
 
 from app.graph.state import SupportState
 from app.tools.order_tools import get_order_status
@@ -13,12 +13,22 @@ _model = None
 
 def _get_model() -> ChatOpenAI:
     global _model
+
     if _model is None:
-        if not (os.getenv("OPENAI_API_KEY") or os.getenv("OPENAI_ADMIN_KEY")):
+
+        api_key = os.getenv("OPENAI_API_KEY")
+
+        if not api_key:
             raise RuntimeError(
-                "Missing OpenAI credentials. Set OPENAI_API_KEY or OPENAI_ADMIN_KEY in the environment."
+                "Missing OPENAI_API_KEY in environment."
             )
-        _model = ChatOpenAI(model="gpt-4o-mini", temperature=0)
+
+        _model = ChatOpenAI(
+            model="gpt-5.4-mini",
+            temperature=50,
+            api_key=api_key,
+        )
+
     return _model
 
 
@@ -26,50 +36,52 @@ def order_agent(
     state: SupportState
 ):
 
-    customer_message = (
-        state["messages"][-1].content
+    # Get the latest HumanMessage
+    customer_message = next(
+        (
+            message.content
+            for message in reversed(state["messages"])
+            if isinstance(message, HumanMessage)
+        ),
+        ""
     )
 
+    # Find Olist order ID
     match = re.search(
-        r"\b\d{4,}\b",
-        customer_message
+        r"\b[a-f0-9]{20,}\b",
+        customer_message,
+        re.IGNORECASE
     )
 
     if match:
 
         order_id = match.group(0)
 
-        order_result = (
-            get_order_status.invoke(
-                {
-                    "order_id": order_id
-                }
-            )
+        # Call PostgreSQL tool
+        order_result = get_order_status.invoke(
+            {
+                "order_id": order_id
+            }
         )
 
         tool_activity = (
             f"Order Agent → "
-            f"get_order_status({order_id})"
+            f"PostgreSQL lookup for {order_id}"
         )
 
     else:
 
-        order_result = (
-            "No order number was provided."
-        )
+        order_result = {
+            "status": "No order number provided"
+        }
 
         tool_activity = (
-            "Order Agent → requested order number"
+            "Order Agent → requested order ID"
         )
 
     system_prompt = f"""
-You are the Order Agent.
-
-You handle:
-- Order status
-- Delivery
-- Shipping
-- Order information
+You are the Order Agent for an e-commerce
+customer support system.
 
 Customer message:
 
@@ -81,11 +93,17 @@ Order database result:
 
 Rules:
 
-1. Never invent order information.
-2. If the order was not found, say so.
-3. If no order number was provided,
-   ask the customer for it.
-4. Give a concise and helpful answer.
+1. Use ONLY the order database result for
+   order-specific information.
+
+2. Never invent order information.
+
+3. If the order was not found, clearly say so.
+
+4. If no order ID was provided, ask the
+   customer to provide their order ID.
+
+5. Give a concise and helpful answer.
 """
 
     response = _get_model().invoke(

@@ -1,27 +1,10 @@
 from langchain_core.tools import tool
 
 
-DEMO_ORDERS = {
+from langchain_core.tools import tool
+from sqlalchemy import text
 
-    "12345": {
-        "status": "Shipped",
-        "eta": "2026-08-18",
-        "carrier": "Demo Express",
-    },
-
-    "67890": {
-        "status": "Delivered",
-        "eta": "2026-08-12",
-        "carrier": "Demo Express",
-    },
-
-    "55555": {
-        "status": "Processing",
-        "eta": "2026-08-20",
-        "carrier": "Demo Express",
-    },
-
-}
+from app.database.db import engine
 
 
 @tool
@@ -29,21 +12,38 @@ def get_order_status(
     order_id: str
 ):
     """
-    Get the status of an order.
+    Get order status and delivery information
+    from the PostgreSQL database.
     """
 
-    order = DEMO_ORDERS.get(
-        order_id
-    )
+    query = text("""
+        SELECT
+            order_id,
+            order_status,
+            order_purchase_timestamp,
+            order_delivered_carrier_date,
+            order_delivered_customer_date,
+            order_estimated_delivery_date
+        FROM orders
+        WHERE order_id = :order_id
+    """)
 
-    if not order:
+    with engine.connect() as connection:
+
+        result = connection.execute(
+            query,
+            {
+                "order_id": order_id
+            }
+        )
+
+        row = result.mappings().first()
+
+    if not row:
 
         return {
             "order_id": order_id,
-            "status": "Order not found",
+            "status": "Order not found"
         }
 
-    return {
-        "order_id": order_id,
-        **order,
-    }
+    return dict(row)

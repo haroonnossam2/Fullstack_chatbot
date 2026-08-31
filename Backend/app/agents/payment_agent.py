@@ -1,23 +1,35 @@
+import re
 import os
 
 from langchain_openai import ChatOpenAI
-from langchain_core.messages import SystemMessage
+from langchain_core.messages import SystemMessage, HumanMessage
 
 from app.graph.state import SupportState
-from app.tools.payment_tools import check_payment
+from app.tools.payment_tools import get_payment_info
 
 
 _model = None
 
 
 def _get_model() -> ChatOpenAI:
+
     global _model
+
     if _model is None:
-        if not (os.getenv("OPENAI_API_KEY") or os.getenv("OPENAI_ADMIN_KEY")):
+
+        api_key = os.getenv("OPENAI_API_KEY")
+
+        if not api_key:
             raise RuntimeError(
-                "Missing OpenAI credentials. Set OPENAI_API_KEY or OPENAI_ADMIN_KEY in the environment."
+                "Missing OPENAI_API_KEY in environment."
             )
-        _model = ChatOpenAI(model="gpt-4o-mini", temperature=0)
+
+        _model = ChatOpenAI(
+            model="gpt-5.4-mini",
+            temperature=50,
+            api_key=api_key,
+        )
+
     return _model
 
 
@@ -25,43 +37,74 @@ def payment_agent(
     state: SupportState
 ):
 
-    customer_message = (
-        state["messages"][-1].content
+    # Get latest user message
+    customer_message = next(
+        (
+            message.content
+            for message in reversed(state["messages"])
+            if isinstance(message, HumanMessage)
+        ),
+        ""
     )
 
-    payment_result = (
-        check_payment.invoke(
+    # Extract Olist order ID
+    match = re.search(
+        r"\b[a-f0-9]{20,}\b",
+        customer_message,
+        re.IGNORECASE
+    )
+
+    if match:
+
+        order_id = match.group(0)
+
+        payment_result = get_payment_info.invoke(
             {
-                "customer_message":
-                customer_message
+                "order_id": order_id
             }
         )
-    )
+
+        tool_activity = (
+            f"Payment Agent → "
+            f"PostgreSQL payment lookup for {order_id}"
+        )
+
+    else:
+
+        payment_result = {
+            "status": "No order ID provided"
+        }
+
+        tool_activity = (
+            "Payment Agent → requested order ID"
+        )
 
     system_prompt = f"""
-You are the Payment Agent.
-
-You handle:
-
-- Payments
-- Duplicate charges
-- Refunds
-- Payment status
+You are the Payment Agent for an e-commerce
+customer support system.
 
 Customer message:
 
 {customer_message}
 
-Payment system result:
+Payment database result:
 
 {payment_result}
 
 Rules:
 
-1. Never claim a refund was actually issued.
-2. Explain what the payment system found.
-3. Explain the next step.
-4. Be concise.
+1. Use ONLY the payment database result for
+   payment-specific information.
+
+2. Never invent payment information.
+
+3. If payment information was not found,
+   clearly say so.
+
+4. If no order ID was provided, ask the
+   customer to provide the order ID.
+
+5. Give a concise and helpful answer.
 """
 
     response = _get_model().invoke(
@@ -77,9 +120,7 @@ Rules:
         []
     )
 
-    activity.append(
-        "Payment Agent → check_payment()"
-    )
+    activity.append(tool_activity)
 
     return {
         "messages": [response],

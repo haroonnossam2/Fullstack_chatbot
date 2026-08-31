@@ -5,3 +5,7 @@ langchain
 langchain-openai
 python-dotenv
 pydantic
+langchain-openai
+openai
+sqlalchemy
+psycopg[binary]

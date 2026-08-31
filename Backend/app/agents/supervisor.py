@@ -1,6 +1,7 @@
+import os
+
 from langchain_openai import ChatOpenAI
 from langchain_core.messages import SystemMessage
-import os
 
 from app.graph.state import SupportState
 
@@ -10,12 +11,22 @@ _model = None
 
 def _get_model() -> ChatOpenAI:
     global _model
+
     if _model is None:
-        if not (os.getenv("OPENAI_API_KEY") or os.getenv("OPENAI_ADMIN_KEY")):
+
+        api_key = os.getenv("OPENAI_API_KEY")
+
+        if not api_key:
             raise RuntimeError(
-                "Missing OpenAI credentials. Set OPENAI_API_KEY or OPENAI_ADMIN_KEY in the environment."
+                "Missing OPENAI_API_KEY in the environment."
             )
-        _model = ChatOpenAI(model="gpt-4o-mini", temperature=0)
+
+        _model = ChatOpenAI(
+            model="gpt-5.4-mini",
+            temperature=50,
+            api_key=api_key,
+        )
+
     return _model
 
 
@@ -33,22 +44,39 @@ should handle the customer's request.
 Available specialists:
 
 ORDER
+Use ORDER for:
 - Order status
+- Where is my order
 - Delivery status
-- Order information
 - Shipping questions
+- Tracking information
+- Estimated delivery date
 
 PAYMENT
-- Payment problems
-- Duplicate charges
-- Refund questions
+Use PAYMENT for:
+- Payment amount
+- How much did I pay
+- Payment method
+- Credit card
 - Payment status
+- Duplicate charges
+- Charges
+- Refund questions
+- Installments
+- Billing questions
 
 SUPPORT
+Use SUPPORT for:
 - General questions
 - Company policies
 - FAQs
 - Product information
+- Return policy
+
+IMPORTANT:
+If the customer asks about payment, payment
+amount, payment method, credit card, charge,
+refund, billing, or installments, return PAYMENT.
 
 Return ONLY one of:
 
@@ -77,7 +105,6 @@ SUPPORT
         "PAYMENT",
         "SUPPORT",
     }:
-
         selected_agent = "SUPPORT"
 
     activity = state.get(

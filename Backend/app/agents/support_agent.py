@@ -11,12 +11,22 @@ _model = None
 
 def _get_model() -> ChatOpenAI:
     global _model
+
     if _model is None:
-        if not (os.getenv("OPENAI_API_KEY") or os.getenv("OPENAI_ADMIN_KEY")):
+
+        api_key = os.getenv("OPENAI_API_KEY")
+
+        if not api_key:
             raise RuntimeError(
-                "Missing OpenAI credentials. Set OPENAI_API_KEY or OPENAI_ADMIN_KEY in the environment."
+                "Missing OPENAI_API_KEY in the environment."
             )
-        _model = ChatOpenAI(model="gpt-4o-mini", temperature=0)
+
+        _model = ChatOpenAI(
+            model="gpt-5.4-mini",
+            temperature=50,
+            api_key=api_key,
+        )
+
     return _model
 
 
@@ -28,7 +38,6 @@ def support_agent(
 You are the General Support Agent.
 
 Handle:
-
 - General questions
 - FAQs
 - Product questions
@@ -37,10 +46,9 @@ Handle:
 
 Be helpful and concise.
 
-If a question requires access to
-customer-specific data, explain what
-information is required instead of
-inventing information.
+If a question requires customer-specific data,
+explain what information is required instead
+of inventing information.
 """
 
     response = _get_model().invoke(
