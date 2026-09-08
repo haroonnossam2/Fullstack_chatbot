@@ -1,46 +1,128 @@
 from langchain_core.tools import tool
-
-
-from langchain_core.tools import tool
 from sqlalchemy import text
 
 from app.database.db import engine
 
 
 @tool
-def get_order_status(
-    order_id: str
-):
+def get_order_details(order_id: str):
     """
-    Get order status and delivery information
-    from the PostgreSQL database.
+    Get complete order information including:
+    - order status
+    - delivery dates
+    - customer location
+    - products
+    - sellers
+    - payment summary
     """
 
     query = text("""
+        WITH payment_summary AS (
+            SELECT
+                order_id,
+                SUM(payment_value) AS total_paid,
+                STRING_AGG(
+                    DISTINCT payment_type,
+                    ', '
+                ) AS payment_methods,
+                MAX(payment_installments) AS max_installments
+            FROM olist_order_payments_dataset
+            WHERE order_id = :order_id
+            GROUP BY order_id
+        ),
+
+        item_summary AS (
+            SELECT
+                oi.order_id,
+
+                JSON_AGG(
+                    JSON_BUILD_OBJECT(
+                        'product_id',
+                        oi.product_id,
+
+                        'category',
+                        COALESCE(
+                            pct.product_category_name_english,
+                            p.product_category_name
+                        ),
+
+                        'price',
+                        oi.price,
+
+                        'freight_value',
+                        oi.freight_value,
+
+                        'seller_id',
+                        oi.seller_id,
+
+                        'seller_city',
+                        s.seller_city,
+
+                        'seller_state',
+                        s.seller_state
+                    )
+                    ORDER BY oi.order_item_id
+                ) AS items
+
+            FROM olist_order_items_dataset oi
+
+            LEFT JOIN olist_products_dataset p
+                ON oi.product_id = p.product_id
+
+            LEFT JOIN product_category_name_translation pct
+                ON p.product_category_name =
+                   pct.product_category_name
+
+            LEFT JOIN olist_sellers_dataset s
+                ON oi.seller_id = s.seller_id
+
+            WHERE oi.order_id = :order_id
+
+            GROUP BY oi.order_id
+        )
+
         SELECT
-            order_id,
-            order_status,
-            order_purchase_timestamp,
-            order_delivered_carrier_date,
-            order_delivered_customer_date,
-            order_estimated_delivery_date
-        FROM orders
-        WHERE order_id = :order_id
+            o.order_id,
+            o.order_status,
+            o.order_purchase_timestamp,
+            o.order_approved_at,
+            o.order_delivered_carrier_date,
+            o.order_delivered_customer_date,
+            o.order_estimated_delivery_date,
+
+            c.customer_id,
+            c.customer_city,
+            c.customer_state,
+
+            ps.total_paid,
+            ps.payment_methods,
+            ps.max_installments,
+
+            i.items
+
+        FROM olist_orders_dataset o
+
+        LEFT JOIN olist_customers_dataset c
+            ON o.customer_id = c.customer_id
+
+        LEFT JOIN payment_summary ps
+            ON o.order_id = ps.order_id
+
+        LEFT JOIN item_summary i
+            ON o.order_id = i.order_id
+
+        WHERE o.order_id = :order_id
     """)
 
     with engine.connect() as connection:
-
         result = connection.execute(
             query,
-            {
-                "order_id": order_id
-            }
+            {"order_id": order_id}
         )
 
         row = result.mappings().first()
 
     if not row:
-
         return {
             "order_id": order_id,
             "status": "Order not found"
