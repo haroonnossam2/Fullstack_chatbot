@@ -9,3 +9,6 @@ langchain-openai
 openai
 sqlalchemy
 psycopg[binary]
+deepeval
+pytest
+requests

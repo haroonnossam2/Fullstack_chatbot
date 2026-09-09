@@ -37,20 +37,20 @@ def _get_model() -> ChatOpenAI:
 def order_agent(state: SupportState):
 
     # Find latest customer message
-    customer_message = next(
-        (
-            message.content
-            for message in reversed(state["messages"])
-            if isinstance(message, HumanMessage)
-        ),
-        ""
+    customer_messages = [
+        message.content
+        for message in state["messages"]
+        if isinstance(message, HumanMessage)
+    ]
+
+    conversation_text = "\n".join(
+        customer_messages
     )
 
-    # Olist order IDs are hexadecimal strings
     match = re.search(
         r"\b[a-f0-9]{20,}\b",
-        customer_message,
-        re.IGNORECASE
+        conversation_text,
+        re.IGNORECASE,
     )
 
     if match:
@@ -84,7 +84,7 @@ e-commerce customer support system.
 
 Customer question:
 
-{customer_message}
+{customer_messages}
 
 PostgreSQL order information:
 
