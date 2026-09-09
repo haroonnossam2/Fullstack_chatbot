@@ -5,8 +5,9 @@ from langchain_openai import ChatOpenAI
 from langchain_core.messages import SystemMessage, HumanMessage
 
 from app.graph.state import SupportState
-from app.tools.payment_tools import get_payment_info
-
+from app.tools.payment_tools import (
+    get_payment_details,
+)
 
 _model = None
 
@@ -33,11 +34,8 @@ def _get_model() -> ChatOpenAI:
     return _model
 
 
-def payment_agent(
-    state: SupportState
-):
+def payment_agent(state: SupportState):
 
-    # Get latest user message
     customer_message = next(
         (
             message.content
@@ -47,7 +45,6 @@ def payment_agent(
         ""
     )
 
-    # Extract Olist order ID
     match = re.search(
         r"\b[a-f0-9]{20,}\b",
         customer_message,
@@ -58,21 +55,24 @@ def payment_agent(
 
         order_id = match.group(0)
 
-        payment_result = get_payment_info.invoke(
-            {
-                "order_id": order_id
-            }
+        payment_result = (
+            get_payment_details.invoke(
+                {
+                    "order_id": order_id
+                }
+            )
         )
 
         tool_activity = (
-            f"Payment Agent → "
-            f"PostgreSQL payment lookup for {order_id}"
+            f"Payment Agent → PostgreSQL payment "
+            f"lookup for {order_id}"
         )
 
     else:
 
         payment_result = {
-            "status": "No order ID provided"
+            "status":
+                "No order ID provided"
         }
 
         tool_activity = (
@@ -80,31 +80,59 @@ def payment_agent(
         )
 
     system_prompt = f"""
-You are the Payment Agent for an e-commerce
-customer support system.
+You are the Payment Agent for an
+e-commerce customer support system.
 
-Customer message:
+Customer question:
 
 {customer_message}
 
-Payment database result:
+PostgreSQL payment information:
 
 {payment_result}
 
-Rules:
+The result may contain:
 
-1. Use ONLY the payment database result for
-   payment-specific information.
+- Total amount paid
+- Payment type
+- Number of installments
+- Individual payment transactions
+- Order status
+- Purchased products
+- Product prices
+- Freight amount
+- Seller information
+
+RULES:
+
+1. Use ONLY PostgreSQL information.
 
 2. Never invent payment information.
 
-3. If payment information was not found,
-   clearly say so.
+3. If the customer asks:
 
-4. If no order ID was provided, ask the
-   customer to provide the order ID.
+   "How much did I pay?"
 
-5. Give a concise and helpful answer.
+   return the total_paid amount.
+
+4. If the customer asks about
+   payment method, use payment_type.
+
+5. If the customer asks about
+   installments, use installments.
+
+6. If there are multiple payment
+   transactions, explain them clearly.
+
+7. If the order does not exist,
+   clearly tell the customer.
+
+8. If no order ID was provided,
+   ask the customer for their order ID.
+
+9. Be concise and customer friendly.
+
+10. Do not show raw database JSON.
 """
 
     response = _get_model().invoke(
@@ -120,7 +148,9 @@ Rules:
         []
     )
 
-    activity.append(tool_activity)
+    activity.append(
+        tool_activity
+    )
 
     return {
         "messages": [response],

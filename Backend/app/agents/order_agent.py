@@ -5,7 +5,8 @@ from langchain_openai import ChatOpenAI
 from langchain_core.messages import SystemMessage, HumanMessage
 
 from app.graph.state import SupportState
-from app.tools.order_tools import get_order_status
+
+from app.tools.order_tools import get_order_details
 
 
 _model = None
@@ -32,47 +33,45 @@ def _get_model() -> ChatOpenAI:
     return _model
 
 
-def order_agent(
-    state: SupportState
-):
 
-    # Get the latest HumanMessage
-    customer_message = next(
-        (
-            message.content
-            for message in reversed(state["messages"])
-            if isinstance(message, HumanMessage)
-        ),
-        ""
+def order_agent(state: SupportState):
+
+    # Find latest customer message
+    customer_messages = [
+        message.content
+        for message in state["messages"]
+        if isinstance(message, HumanMessage)
+    ]
+
+    conversation_text = "\n".join(
+        customer_messages
     )
 
-    # Find Olist order ID
     match = re.search(
         r"\b[a-f0-9]{20,}\b",
-        customer_message,
-        re.IGNORECASE
+        conversation_text,
+        re.IGNORECASE,
     )
 
     if match:
 
         order_id = match.group(0)
 
-        # Call PostgreSQL tool
-        order_result = get_order_status.invoke(
+        order_result = get_order_details.invoke(
             {
                 "order_id": order_id
             }
         )
 
         tool_activity = (
-            f"Order Agent → "
-            f"PostgreSQL lookup for {order_id}"
+            f"Order Agent → PostgreSQL joined lookup "
+            f"for {order_id}"
         )
 
     else:
 
         order_result = {
-            "status": "No order number provided"
+            "status": "No order ID provided"
         }
 
         tool_activity = (
@@ -80,30 +79,57 @@ def order_agent(
         )
 
     system_prompt = f"""
-You are the Order Agent for an e-commerce
-customer support system.
+You are the Order Agent for an
+e-commerce customer support system.
 
-Customer message:
+Customer question:
 
-{customer_message}
+{customer_messages}
 
-Order database result:
+PostgreSQL order information:
 
 {order_result}
 
-Rules:
+The database result may contain:
 
-1. Use ONLY the order database result for
-   order-specific information.
+- Order status
+- Purchase date
+- Delivery date
+- Estimated delivery date
+- Customer city/state
+- Products
+- Product categories
+- Product prices
+- Freight charges
+- Seller information
+- Total payment amount
+- Payment method
+- Installments
 
-2. Never invent order information.
+RULES:
 
-3. If the order was not found, clearly say so.
+1. Use ONLY information returned by PostgreSQL.
 
-4. If no order ID was provided, ask the
-   customer to provide their order ID.
+2. Never invent:
+   - order status
+   - products
+   - prices
+   - payment amounts
+   - seller information
+   - delivery information
 
-5. Give a concise and helpful answer.
+3. Answer only what the customer asked.
+
+4. If the order does not exist,
+   clearly tell the customer.
+
+5. If no order ID was provided,
+   ask the customer to provide their order ID.
+
+6. Keep your response concise and helpful.
+
+7. Do not expose raw database structures
+   or JSON to the customer.
 """
 
     response = _get_model().invoke(

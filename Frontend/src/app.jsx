@@ -33,6 +33,15 @@ export default function App() {
   ] = useState(false);
 
 
+  // Create one unique conversation ID
+  // for this chat session
+  const [
+    conversationId,
+  ] = useState(
+    () => crypto.randomUUID()
+  );
+
+
   async function handleSend() {
 
     const message =
@@ -71,7 +80,7 @@ export default function App() {
       const result =
         await sendMessage(
           message,
-          "demo-conversation"
+          conversationId
         );
 
 

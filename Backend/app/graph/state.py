@@ -13,3 +13,5 @@ class SupportState(TypedDict):
     last_agent: str
 
     activity: List[str]
+
+    current_order_id: str
